@@ -26,7 +26,20 @@ playlist_dict = {"name": "play",
     }
 }
 
-
+fppd_status = {
+    'FPPD_Mode': 0,
+    'FPP_Status': 0,
+    'Volume': 0,
+    'Playlist_or_NextPlaylist': 0,
+    'sequence': 0,
+    'sequence_position': 0,
+    'number_of_sequences': 0,
+    'time_elapsed': 0,
+    'time_remaining': 0,
+    'next_playlist':0,
+    'schedule': 0,
+    'repeat': 0,
+}
 
 class FppSettings:
     def __init__(self, xbee_com='/dev/ttyUSB0', xbee_baud=9600):
@@ -34,9 +47,14 @@ class FppSettings:
         self.local_xbee.open()
         self.xbee_network = self.local_xbee.get_network()
         self.network_devices = self.get_devices()
+        self.status = self.get_fppd_status()
     hostname = "http://" + socket.gethostname()
     playlists = requests.get(hostname+'/api/playlists').json()
     number_of_playlist = {'number_of_playlist': len(playlists)}
+
+    def get_fppd_status(self):
+        status = subprocess.run(['fpp', '-s'], stdout=subprocess.PIPE)
+        return status
 
     def get_command(self, command, address):
         if hasattr(self, command):
