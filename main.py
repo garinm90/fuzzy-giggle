@@ -67,7 +67,10 @@ class FppSettings:
         if 'false' in status:
             return None
         status_list = status.split(',')
-        status_list.remove('')
+        if '' in status_list:
+            status_list.remove('')
+        else:
+            return None
         status_list = list(map(cls.convert_str_to_int, status_list))
         status_list = dict(zip(key_list, status_list))
         return status_list
