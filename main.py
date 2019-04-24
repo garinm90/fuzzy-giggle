@@ -4,6 +4,7 @@ import json
 import socket
 import subprocess
 import time
+from builtins import enumerate
 from collections import ChainMap
 
 
@@ -153,9 +154,9 @@ class FppSettings(Light):
         """
         values_to_send = [{'total_duration': playlist_json['playlistInfo']['total_duration']},
                           {'total_items': playlist_json['playlistInfo']['total_items']}]
-        for value in playlist_json['mainPlaylist']:
-            print(value)
-            values_to_send.append({'sequenceName': value['sequenceName']})
+        for i, value in enumerate(playlist_json['mainPlaylist']):
+            values_to_send.append({'sequenceName' + str(i): value['sequenceName']})
+
         return values_to_send
 
     def send_playlists(self, address):
@@ -178,7 +179,6 @@ class FppSettings(Light):
                 elif type(value) == dict:
                     key = list(value)[0]
                     value[key + '_' + str(number_of_playlist_sent)] = value.pop(key)
-                    print(value)
                     self.send_message_to(str(value), address)
                 else:
                     self.send_message_to(value, address)
@@ -193,23 +193,23 @@ class FppSettings(Light):
     def send_message_to(self, message, address):
         self.local_xbee.send_data_async_64(address, message)
 
-    def post_playlist(self):
-        pass
-        # {
-        #     "name": "UploadTest",
-        #     "mainPlaylist": [
-        #         {
-        #             "type": "pause",
-        #             "enabled": 1,
-        #             "playOnce": 0,
-        #             "duration": 8
-        #         }
-        #     ],
-        #     "playlistInfo": {
-        #         "total_duration": 8,
-        #         "total_items": 1
-        #     }
-        # }
+    # def post_playlist(self):
+    #     pass
+    #     # {
+    #     #     "name": "UploadTest",
+    #     #     "mainPlaylist": [
+    #     #         {
+    #     #             "type": "pause",
+    #     #             "enabled": 1,
+    #     #             "playOnce": 0,
+    #     #             "duration": 8
+    #     #         }
+    #     #     ],
+    #     #     "playlistInfo": {
+    #     #         "total_duration": 8,
+    #     #         "total_items": 1
+    #     #     }
+    #     # }
 
     def update_playlist(self):
         init_time = time.time()
@@ -225,26 +225,40 @@ class FppSettings(Light):
                     items = ['total_items', 'sequence_name']
                     if any('end_transmit' in key for key in xbee_messages):
                         xbee_messages = dict(ChainMap(*xbee_messages))
-                        for i in range(0, xbee_messages['number_of_playlist']):
-                            xbee_message_key = '_' + str(i)
-                            xbee_messages['']
-                            print(xbee_messages['number_of_playlist'])
+                        if self.post_playlist(xbee_messages):
+                            break
+                        # print(xbee_messages)
+                        # for i in range(0, xbee_messages['number_of_playlist']):
+                        #     xbee_message_key = '_' + str(i)
+                        #     for j in range(0, xbee_messages['total_items' + xbee_message_key]):
+                        #         print(xbee_messages['sequenceName' + str(j) + xbee_message_key])
 
+    def post_playlist(self, playlist_data):
+        playlist_name = 'play_'
+        for i in range(playlist_data['number_of_playlist']):
+            playlist_name += str(i)
+            playlist_data_key = '_' + str(i)
+            playlist_dict = {"name": playlist_name,
+                             "mainPlaylist": [
 
-playlist_dict = {"name": "play",
-                 "mainPlaylist": [
-                     {
-                         "type": "sequence",
-                         "enabled": 1,
-                         "playOnce": 0,
-                         "sequenceName": "2.25.19notes2f-G1f--.fseq"
-                     },
-                 ],
-                 "playlistInfo": {
-                     "total_duration": 90,
-                     "total_items": 3
-                 }
-                 }
+                             ],
+                             "playlistInfo": {
+                                 "total_duration": playlist_data['total_duration' + playlist_data_key],
+                                 "total_items": playlist_data['total_items' + playlist_data_key]
+                                                },
+                             }
+            for j in range(0, playlist_data['total_items' + playlist_data_key]):
+                sequence_dict = {
+                    "type": "sequence",
+                    "enabled": 1,
+                    "playOnce": 0,
+                    "sequenceName": playlist_data['sequenceName' + str(j) + playlist_data_key]
+                }
+
+                playlist_dict["mainPlaylist"].append(sequence_dict.copy())
+            r = requests.post(self.hostname + '/api/playlist/' + playlist_dict["name"], json=playlist_dict)
+            print(r.status_code)
+        return True
 
 
 def check_for_message(xbee_message):
@@ -259,9 +273,7 @@ def main(fppmode):
         fpp = FppSettings(fppmode)
         if fpp.fpp_mode == 'slave':
             fpp.states['transmitting'] = True
-            print(fpp.master_device.get_64bit_addr())
             fpp.update_playlist()
-        print(fpp.status)
         print('Waiting for data....')
         while True:
             fpp.change_state()
