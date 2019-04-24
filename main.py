@@ -32,32 +32,56 @@ key_list = [
 ]
 
 
-class FppSettings:
+class FppSettings(Light):
     def __init__(self, fpp_mode, status=None, xbee_com='/dev/ttyAMA0', xbee_baud=9600):
+        Light.__init__(self, 15, 16, 18)
+        # Define a mode so we know if we are the master or slave
         self.fpp_mode = fpp_mode
         self.status = status
+        # Check if the fpp player is up and running so we don't issue commands before its ready that may cause a crash.
         while self.status is None:
             print('Waiting for FPPD to start...')
+            self.states['loading'] = True
             time.sleep(1)
             self.status = self.get_fppd_status()
             self.local_xbee = DigiMeshDevice(xbee_com, xbee_baud)
         while True:
+            """ Attempt to connect to an xbee device that is plugged in. 
+            Currently this will loop infinitely if no device is connected. 
+            Needs to be updated with a timeout feature.
+            Should finish loading the script then try and connect to a xbee device periodically. 
+            """
             try:
+                self.states['loading'] = True
                 self.local_xbee.open()
                 break
             except XBeeException:
+                self.states['loading'] = False
+                self.states['error'] = True
                 print('Check the device is connected!')
             except InvalidOperatingModeException:
+                self.states['loading'] = False
+                self.states['error'] = True
                 print('Something went wrong lets try again.')
                 self.local_xbee.close()
         self.xbee_network = self.local_xbee.get_network()
+        # Save all the network devices in a list so we can find who to talk to.
         self.network_devices = self.get_devices()
         if self.fpp_mode == 'slave':
             self.playlist_updated = False
+            self.master_device = self.get_master_device()
 
     hostname = "http://" + socket.gethostname()
     playlists = requests.get(hostname + '/api/playlists').json()
     number_of_playlist = {'number_of_playlist': len(playlists)}
+
+    def get_master_device(self):
+        for device in self.network_devices:
+            if 'master' in device.get_node_id():
+                print('Found the master')
+                return device
+
+
 
     @staticmethod
     def convert_str_to_int(item):
@@ -94,6 +118,7 @@ class FppSettings:
             print('Unhandled Command: ' + command)
 
     def get_devices(self):
+        """" Method to discover all the xbees in the current network this method is blocking."""
         self.xbee_network.start_discovery_process()
         while self.xbee_network.is_discovery_running():
             time.sleep(0.5)
@@ -129,17 +154,24 @@ class FppSettings:
         values_to_send = [{'total_duration': playlist_json['playlistInfo']['total_duration']},
                           {'total_items': playlist_json['playlistInfo']['total_items']}]
         for value in playlist_json['mainPlaylist']:
+            print(value)
             values_to_send.append({'sequenceName': value['sequenceName']})
         return values_to_send
 
     def send_playlists(self, address):
+        # Ignore playlist request if we are a slave controller.
         if self.fpp_mode == 'slave':
             return
         number_of_playlist_sent = 0
         for item in self.playlists:
+            # Loop through the list of items in the playlists api.
+            # Grab a json value from the specified playlist for sending
             values_to_send = self.define_playlist_values(self.get_playlist(item))
+            # If we haven't send anything send out the total number of playlist.
+            # So the reciever knows how many to expect.
             if number_of_playlist_sent == 0:
                 self.send_message_to(str(self.number_of_playlist), address)
+            # Send values and append which playlist number the belong too so we don't have repeating keys.
             for value in values_to_send:
                 if type(value) == int:
                     self.send_message_to(str(value), address)
@@ -151,6 +183,7 @@ class FppSettings:
                 else:
                     self.send_message_to(value, address)
             number_of_playlist_sent += 1
+        # Let the receiver know the transmission has finished.
         self.send_message_to('{"end_transmit": 1}', address)
 
     def send_message_all(self, message):
@@ -161,6 +194,7 @@ class FppSettings:
         self.local_xbee.send_data_async_64(address, message)
 
     def post_playlist(self):
+        pass
         # {
         #     "name": "UploadTest",
         #     "mainPlaylist": [
@@ -182,15 +216,18 @@ class FppSettings:
         timeout = 15
         xbee_messages = []
         if not self.playlist_updated:
-            self.send_message_all('send_playlists')
+            self.send_message_to('send_playlists', self.master_device.get_64bit_addr())
             while not self.playlist_updated:
                 xbee_message = self.local_xbee.read_data()
                 if xbee_message:
                     xbee_message = xbee_message.data.decode()
                     xbee_messages.append(ast.literal_eval(xbee_message))
+                    items = ['total_items', 'sequence_name']
                     if any('end_transmit' in key for key in xbee_messages):
                         xbee_messages = dict(ChainMap(*xbee_messages))
                         for i in range(0, xbee_messages['number_of_playlist']):
+                            xbee_message_key = '_' + str(i)
+                            xbee_messages['']
                             print(xbee_messages['number_of_playlist'])
 
 
@@ -221,12 +258,20 @@ def main(fppmode):
     try:
         fpp = FppSettings(fppmode)
         if fpp.fpp_mode == 'slave':
+            fpp.states['transmitting'] = True
+            print(fpp.master_device.get_64bit_addr())
             fpp.update_playlist()
         print(fpp.status)
         print('Waiting for data....')
         while True:
+            fpp.change_state()
             xbee_message = fpp.local_xbee.read_data()
+            fpp.states['loading'] = False
+            fpp.states['error'] = False
+            fpp.states['receiving'] = False
+            fpp.states['transmitting'] = False
             if xbee_message:
+                fpp.states['receiving'] = True
                 new_message = xbee_message.data.decode()
                 sender_address = xbee_message.remote_device.get_64bit_addr()
                 fpp.get_command(new_message, sender_address)

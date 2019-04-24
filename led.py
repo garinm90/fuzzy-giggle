@@ -1,3 +1,4 @@
+# import RPi.GPIO as GPIO
 import wiringpi
 from time import sleep, time
 
@@ -56,5 +57,5 @@ class Light:
                     self.digital_write(self.G_PIN, self.last_value)
                     self.last_value = not self.last_value
                 elif state == 'transmitting' and not value:
-
+                    self.digital_write(self.G_PIN, value)
 
