@@ -10,7 +10,10 @@ from collections import ChainMap
 import click
 import requests
 from digi.xbee.devices import DigiMeshDevice
-from serial import SerialException
+from digi.xbee.exception import XBeeException, InvalidOperatingModeException
+from led import Light
+# from serial import SerialException
+
 
 key_list = [
     'FPPD_Mode',
@@ -30,7 +33,7 @@ key_list = [
 
 
 class FppSettings:
-    def __init__(self, fpp_mode, status=None, xbee_com='/dev/ttyUSB0', xbee_baud=9600):
+    def __init__(self, fpp_mode, status=None, xbee_com='/dev/ttyAMA0', xbee_baud=9600):
         self.fpp_mode = fpp_mode
         self.status = status
         while self.status is None:
@@ -42,8 +45,11 @@ class FppSettings:
             try:
                 self.local_xbee.open()
                 break
-            except SerialException:
+            except XBeeException:
                 print('Check the device is connected!')
+            except InvalidOperatingModeException:
+                print('Something went wrong lets try again.')
+                self.local_xbee.close()
         self.xbee_network = self.local_xbee.get_network()
         self.network_devices = self.get_devices()
         if self.fpp_mode == 'slave':
@@ -155,21 +161,21 @@ class FppSettings:
         self.local_xbee.send_data_async_64(address, message)
 
     def post_playlist(self):
-        {
-            "name": "UploadTest",
-            "mainPlaylist": [
-                {
-                    "type": "pause",
-                    "enabled": 1,
-                    "playOnce": 0,
-                    "duration": 8
-                }
-            ],
-            "playlistInfo": {
-                "total_duration": 8,
-                "total_items": 1
-            }
-        }
+        # {
+        #     "name": "UploadTest",
+        #     "mainPlaylist": [
+        #         {
+        #             "type": "pause",
+        #             "enabled": 1,
+        #             "playOnce": 0,
+        #             "duration": 8
+        #         }
+        #     ],
+        #     "playlistInfo": {
+        #         "total_duration": 8,
+        #         "total_items": 1
+        #     }
+        # }
 
     def update_playlist(self):
         init_time = time.time()
