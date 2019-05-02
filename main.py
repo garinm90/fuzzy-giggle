@@ -33,19 +33,18 @@ key_list = [
 ]
 
 
-class FppSettings(Light):
+class FppSettings():
     def __init__(self, fpp_mode, status=None, xbee_com='/dev/ttyAMA0', xbee_baud=9600):
-        Light.__init__(self, 15, 16, 18)
+        # Light.__init__(self, 15, 16, 18)
         # Define a mode so we know if we are the master or slave
         self.fpp_mode = fpp_mode
-        self.status = status
+        self.status = self.get_fppd_status()
         # Check if the fpp player is up and running so we don't issue commands before its ready that may cause a crash.
         while self.status is None:
             print('Waiting for FPPD to start...')
-            self.states['loading'] = True
             time.sleep(1)
             self.status = self.get_fppd_status()
-            self.local_xbee = DigiMeshDevice(xbee_com, xbee_baud)
+        self.local_xbee = DigiMeshDevice(xbee_com, xbee_baud)
         while True:
             """ Attempt to connect to an xbee device that is plugged in. 
             Currently this will loop infinitely if no device is connected. 
@@ -53,16 +52,11 @@ class FppSettings(Light):
             Should finish loading the script then try and connect to a xbee device periodically. 
             """
             try:
-                self.states['loading'] = True
                 self.local_xbee.open()
                 break
             except XBeeException:
-                self.states['loading'] = False
-                self.states['error'] = True
                 print('Check the device is connected!')
             except InvalidOperatingModeException:
-                self.states['loading'] = False
-                self.states['error'] = True
                 print('Something went wrong lets try again.')
                 self.local_xbee.close()
         self.xbee_network = self.local_xbee.get_network()
@@ -82,6 +76,11 @@ class FppSettings(Light):
                 print('Found the master')
                 return device
 
+    def play_first_available_playlist(self):
+        print(self.get_playlist(self.playlists[0])['name'])
+        playlist_name = self.get_playlist(self.playlists[0])['name']
+        subprocess.run(['/opt/fpp/src/fpp', '-p', playlist_name], stdout=subprocess.DEVNULL)
+
 
 
     @staticmethod
@@ -91,8 +90,7 @@ class FppSettings(Light):
         else:
             return item
 
-    @classmethod
-    def get_fppd_status(cls):
+    def get_fppd_status(self):
         status = subprocess.run(['/opt/fpp/src/fpp', '-s'], stdout=subprocess.PIPE).stdout.decode(
             'utf-8').strip('\n')
         if 'false' in status:
@@ -100,11 +98,11 @@ class FppSettings(Light):
         status_list = status.split(',')
         if '' in status_list:
             status_list.remove('')
-        else:
-            return None
-        status_list = list(map(cls.convert_str_to_int, status_list))
-        status_list = dict(zip(key_list, status_list))
-        return status_list
+            status_list = list(map(self.convert_str_to_int, status_list))
+            status_list = dict(zip(key_list, status_list))
+            return status_list
+        elif not int(status[2]):
+            self.play_first_available_playlist()
 
     # Incoming message from another FPP device. Try to call the command from the class methods.
     def get_command(self, command, address):
@@ -134,10 +132,6 @@ class FppSettings(Light):
         r = requests.get(self.hostname + '/api/playlist/' + playlist).json()
         return r
 
-    @staticmethod
-    def dump_json(json_data):
-        stringify = json.dumps(json_data, indent=2)
-        return stringify
 
     @staticmethod
     def define_playlist_values(playlist_json):
@@ -193,27 +187,9 @@ class FppSettings(Light):
     def send_message_to(self, message, address):
         self.local_xbee.send_data_async_64(address, message)
 
-    # def post_playlist(self):
-    #     pass
-    #     # {
-    #     #     "name": "UploadTest",
-    #     #     "mainPlaylist": [
-    #     #         {
-    #     #             "type": "pause",
-    #     #             "enabled": 1,
-    #     #             "playOnce": 0,
-    #     #             "duration": 8
-    #     #         }
-    #     #     ],
-    #     #     "playlistInfo": {
-    #     #         "total_duration": 8,
-    #     #         "total_items": 1
-    #     #     }
-    #     # }
+
 
     def update_playlist(self):
-        init_time = time.time()
-        timeout = 15
         xbee_messages = []
         if not self.playlist_updated:
             self.send_message_to('send_playlists', self.master_device.get_64bit_addr())
@@ -257,7 +233,10 @@ class FppSettings(Light):
 
                 playlist_dict["mainPlaylist"].append(sequence_dict.copy())
             r = requests.post(self.hostname + '/api/playlist/' + playlist_dict["name"], json=playlist_dict)
-            print(r.status_code)
+            if r.status_code:
+                self.playlist_updated = True
+            else:
+                self.playlist_updated = False
         return True
 
 
@@ -272,18 +251,11 @@ def main(fppmode):
     try:
         fpp = FppSettings(fppmode)
         if fpp.fpp_mode == 'slave':
-            fpp.states['transmitting'] = True
             fpp.update_playlist()
         print('Waiting for data....')
         while True:
-            fpp.change_state()
             xbee_message = fpp.local_xbee.read_data()
-            fpp.states['loading'] = False
-            fpp.states['error'] = False
-            fpp.states['receiving'] = False
-            fpp.states['transmitting'] = False
             if xbee_message:
-                fpp.states['receiving'] = True
                 new_message = xbee_message.data.decode()
                 sender_address = xbee_message.remote_device.get_64bit_addr()
                 fpp.get_command(new_message, sender_address)
