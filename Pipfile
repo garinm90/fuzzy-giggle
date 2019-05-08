@@ -1,0 +1,16 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+wiringpi = "*"
+click = "==7.0"
+digi-xbee = "==1.1.1.1"
+requests = "==2.21.0"
+ptvsd = "*"
+
+[requires]
+python_version = "3.6"

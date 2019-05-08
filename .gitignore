@@ -102,3 +102,8 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+.vscode/ftp-sync.json
+.vscode/launch.json
+.vscode/settings.json
+.vscode/tasks.json
+notify.sh
