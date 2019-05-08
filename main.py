@@ -10,7 +10,11 @@ from collections import ChainMap
 import click
 import requests
 from digi.xbee.devices import DigiMeshDevice
-from digi.xbee.exception import InvalidOperatingModeException, XBeeException
+from digi.xbee.exception import (
+    InvalidOperatingModeException,
+    XBeeException,
+    InvalidPacketException,
+)
 
 
 import ptvsd
@@ -63,11 +67,14 @@ class FppSettings:
             try:
                 self.local_xbee.open()
                 break
+            except InvalidPacketException:
+                print("Bad API packet try again")
             except InvalidOperatingModeException:
                 print("Something went wrong lets try again.")
                 self.local_xbee.close()
             except XBeeException:
                 print("Check the device is connected!")
+
         self.xbee_network = self.local_xbee.get_network()
         # Save all the network devices in a list so we can find who to talk to.
         self.network_devices = self.get_devices()
@@ -215,9 +222,7 @@ class FppSettings:
             self.send_message_to("send_playlists", self.master_device.get_64bit_addr())
             while not self.playlist_updated:
                 xbee_message = self.local_xbee.read_data()
-                if xbee_message == "restart_playlist":
-                    pass
-                elif xbee_message:
+                if xbee_message and xbee_message != "restart_playlist":
                     xbee_message = xbee_message.data.decode()
                     print(xbee_message)
                     xbee_messages.append(ast.literal_eval(xbee_message))
@@ -280,7 +285,7 @@ def main(fppmode):
     fpp_status_keys = ["number_of_sequences", "sequence_position", "time_remaining"]
     try:
         fpp = FppSettings(fppmode)
-        if fpp.fpp_mode == "slave":
+        if fpp.fpp_mode == "slave" and fpp.master_device:
             fpp.update_playlist()
         print("Waiting for data....")
         while True:
